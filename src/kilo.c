@@ -1,12 +1,24 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
-#include <termios.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include "../include/kilo.h"
 #include <errno.h>
 
-struct termios orig_termios;
+struct editorConfig E;
+
+/*** output ***/
+void editorDrawRows()
+{
+    int y;
+    for(y=0; y<E.screenrows;y++)
+    {
+        //Draws a column of tildes on the left of the screen
+        //Handles each row of text being edited
+        write(STDOUT_FILENO, "~\r\n", 3);
+    }
+}
 
 void editorRefreshScreen()
 {
@@ -14,22 +26,14 @@ void editorRefreshScreen()
     //0x1b is the ESC key, followed by the [ generates an escape sequence
     //In this case it clears the whole screen, but sets the cursor to the bottom
     write(STDOUT_FILENO, "\x1b[2J", 4);
-    //The H command repositions the cursor
+    //The H command repositions the cursor to the top and can take two arguments
+    //for row and column like [12;40H, default is 1;1
+    write(STDOUT_FILENO, "\x1b[H", 3);
+    editorDrawRows();
     write(STDOUT_FILENO, "\x1b[H", 3);
 }
 
-//Editor function waits to read input from the terminal in case it's not invalid
-char editorReadKey()
-{
-    int nread;
-    char c;
-    while((nread = read(STDIN_FILENO, &c, 1)) != 1)
-    {
-        if(nread == -1 && errno != EAGAIN)
-            die("read");
-    }
-    return c;
-}
+/*** input ***/
 //Process input coming from read key, for now doesn't do anything, just exits with Ctrl Q
 void editorProcessKeypress()
 {
@@ -37,15 +41,21 @@ void editorProcessKeypress()
     switch(c)
     {
         case CTRL_KEY('q'):
+            write(STDOUT_FILENO, "\x1b[2J", 4);
+            write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
             break;
     }
 }
 
-
+/*** terminal ***/
 //Prints error message and exits the program
 void die(const char* s)
 {
+    //Both write commands added at exit to clear the screen instead of atexit() to
+    //keep the error message
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    write(STDOUT_FILENO, "\x1b[H", 3);
     perror(s);
     exit(1);
 }
@@ -53,7 +63,7 @@ void die(const char* s)
 //Disables the turned off echo after running main code so text can appear normally again
 void disableRawMode()
 {
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1)
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
         die("tcsetattr");
 
 }
@@ -66,13 +76,13 @@ void enableRawMode()
     //"./text_editor < ../src/main.c"
     //These cause a failure because they assign files as input for the executable,
     //instead of the terminal
-    if(tcgetattr(STDIN_FILENO, &orig_termios) == -1)
+    if(tcgetattr(STDIN_FILENO, &E.orig_termios) == -1)
         die("tcgetattr");
     
     //Ensures that the original terminal configuration is set at program exit
     atexit(disableRawMode);
     
-    struct termios raw = orig_termios;
+    struct termios raw = E.orig_termios;
     tcgetattr(STDIN_FILENO, &raw);
 
     //Reverts ECHO and then ANDs with a 0 on the corresponding local flags to disable them
@@ -96,5 +106,63 @@ void enableRawMode()
     //Applies new terminal values by changing the raw variable
     if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1)
         die("tcsetattr");
+}
+
+//Editor function waits to read input from the terminal in case it's not invalid
+char editorReadKey()
+{
+    int nread;
+    char c;
+    while((nread = read(STDIN_FILENO, &c, 1)) != 1)
+    {
+        if(nread == -1 && errno != EAGAIN)
+            die("read");
+    }
+    return c;
+}
+
+int getCursorPosition(int* rows, int* cols)
+{
+    if(write(STDOUT_FILENO, "\x1b[6n", 4) != 4)
+        return -1;
+    char c;
+    while(read(STDIN_FILENO, &c, 1) == 1)
+    {
+        if(iscntrl(c))
+            printf("%d\r\n", c);
+        else
+            printf("%c, (%d)\r\n", c, c);
+    }
+    editorReadKey();
+    return -1;
+}
+
+int getWindowSize(int* rows, int* cols)
+{
+    struct winsize ws; //failure by ioctl or dimensions gives back error value
+    //TIOCGWINSZ: Terminal I/O Control get Window Size
+    if(1 || ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
+    {
+        //Makes sure to request window size on more systems
+        //1. Moves cursor forward and then down, C and B commands stop when finding the edge
+        if(write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12)
+            return getCursorPosition(rows, cols);
+        editorReadKey();
+        return -1;
+    }
+    else //Success: dimensions of given window size stored into the variables
+    {
+        *cols = ws.ws_col;
+        *rows = ws.ws_row;
+        return 0;
+    }
+}
+
+/*** init ***/
+//Initializes all fields on E-structure
+void initEditor()
+{
+    if(getWindowSize(&E.screenrows, &E.screencols) == -1)
+        die("getWindowSize");
 }
 

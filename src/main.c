@@ -7,6 +7,7 @@
 int main(void)
 {
     enableRawMode();
+    initEditor();
     char c;
     //Reads text from the terminal until user inputs 'q', any text after q
     //is not read. (read(STDIN_FILENO, &c, 1) == 1 & c != 'q')
