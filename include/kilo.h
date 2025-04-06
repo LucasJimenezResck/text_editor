@@ -24,10 +24,13 @@ struct abuf
     int len;
 };
 
+//Use of enum to describe the arrow keys makes some changes in the key reading, changing to int
+enum editorKey {ARROW_LEFT = 1000, ARROW_RIGHT, ARROW_UP, ARROW_DOWN};
+
 void disableRawMode();
 void enableRawMode();
 void die(const char* s);
-char editorReadKey();
+int editorReadKey();
 void editorProcessKeypress();
 void editorRefreshScreen();
 void editorDrawRows(struct abuf* ab);
@@ -36,3 +39,4 @@ int getCursorPosition(int* rows, int* cols);
 void initEditor();
 void abAppend(struct abuf* ab, const char* s, int len);
 void abFree(struct abuf* ab);
+void editorMoveCursor(int key);

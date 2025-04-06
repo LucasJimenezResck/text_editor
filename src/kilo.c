@@ -70,7 +70,12 @@ void editorRefreshScreen()
     //for row and column like [12;40H, default is 1;1
     abAppend(&ab, "\x1b[H", 3);
     editorDrawRows(&ab);
-    abAppend(&ab, "\x1b[H", 3);
+
+    //H command with arguments to specify exactly where to move the cursor
+    char buf[32];
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cy + 1, E.cx + 1);
+    abAppend(&ab, buf, strlen(buf));
+
     abAppend(&ab, "\x1b[?25h", 6);
 
     //All of buffer's contents are written out and memory is set free
@@ -82,13 +87,19 @@ void editorRefreshScreen()
 //Process input coming from read key, for now doesn't do anything, just exits with Ctrl Q
 void editorProcessKeypress()
 {
-    char c = editorReadKey();
+    int c = editorReadKey();
     switch(c)
     {
         case CTRL_KEY('q'):
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
+            break;
+        case ARROW_UP:
+        case ARROW_LEFT:
+        case ARROW_DOWN:
+        case ARROW_RIGHT:
+            editorMoveCursor(c);
             break;
     }
 }
@@ -154,7 +165,7 @@ void enableRawMode()
 }
 
 //Editor function waits to read input from the terminal in case it's not invalid
-char editorReadKey()
+int editorReadKey()
 {
     int nread;
     char c;
@@ -163,7 +174,40 @@ char editorReadKey()
         if(nread == -1 && errno != EAGAIN)
             die("read");
     }
-    return c;
+
+    //If we read an esc byte, we go to read three bytes that code the arrow keys
+    if(c == '\x1b')
+    {
+        char seq[3];
+        //If not respond, we assume just esc was pressed
+        if(read(STDIN_FILENO, &seq[0], 1) != 1)
+            return '\x1b';
+        if(read(STDIN_FILENO, &seq[1], 1) != 1)
+            return '\x1b';
+        
+        //Code the command for the arrow keys
+        if(seq[0] == '[')
+        {
+            switch(seq[1])
+            {
+                case 'A':
+                    return ARROW_UP;
+                case 'B':
+                    return ARROW_DOWN;
+                case 'C':
+                    return ARROW_RIGHT;
+                case 'D':
+                    return ARROW_LEFT;
+            }
+        }
+        //If unknown, just return esc
+        return '\x1b';
+
+    }
+    else 
+    {
+        return c;
+    }
 }
 
 int getCursorPosition(int* rows, int* cols)
@@ -210,6 +254,32 @@ int getWindowSize(int* rows, int* cols)
         return 0;
     }
 }
+
+void editorMoveCursor(int key)
+{
+    switch(key)
+    {
+        case ARROW_UP:
+            if(E.cy != 0)
+                E.cy--;
+            break;
+        case ARROW_LEFT:
+            if(E.cx != 0)
+                E.cx--;
+            break;
+        case ARROW_DOWN:
+            if(E.cy != E.screenrows - 1)
+                E.cy++;
+            break;
+        case ARROW_RIGHT:
+            if(E.cx != E.screencols - 1)
+                E.cx++;
+            break;
+        default:
+            break;
+    }
+}
+
 /*** append buffer ***/
 
 void abAppend(struct abuf* ab, const char* s, int len)
