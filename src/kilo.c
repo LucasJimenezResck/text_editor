@@ -5,32 +5,77 @@
 #include <unistd.h>
 #include "../include/kilo.h"
 #include <errno.h>
+#include <string.h>
 
 struct editorConfig E;
 
 /*** output ***/
-void editorDrawRows()
+void editorDrawRows(struct abuf* ab)
 {
     int y;
     for(y=0; y<E.screenrows;y++)
     {
+        //At about a third of the screen print out a welcome message
+        if(y==E.screenrows / 3)
+        {
+            char welcome[80];
+            int welcomelen = snprintf(welcome, sizeof(welcome), 
+            "Kilo editor -- version %s", KILO_VERSION);
+            if(welcomelen > E.screencols)
+                welcomelen = E.screencols;
+            //Centers the screen to exactly the start of the message
+            int padding = (E.screencols - welcomelen) / 2;
+            //Starting character is a ~
+            if(padding)
+            {
+                abAppend(ab, "~", 1);
+                padding--;
+            }
+            //Rest is just blank
+            while(padding--)
+                abAppend(ab, " ", 1);
+            abAppend(ab, welcome, welcomelen); 
+        }
         //Draws a column of tildes on the left of the screen
         //Handles each row of text being edited
-        write(STDOUT_FILENO, "~\r\n", 3);
+        //Static input: write(STDOUT_FILENO, "~", 1);
+        //All instances of abAppend in code were first like the write command
+        else
+        {
+            abAppend(ab, "~", 1);
+        }
+        abAppend(ab,"\x1b[K", 3);
+        //Makes sure last line is an exception to drawing a new line so that all lines have ~
+        if(y < E.screenrows - 1)
+        {
+            abAppend(ab, "\r\n", 2);
+        }
     }
 }
 
 void editorRefreshScreen()
 {
+    struct abuf ab = ABUF_INIT;
+
+    
+    //This line corrects the flickering of the cursor during while the terminal is drawing
+    //It hides and then reappears the cursor, some terminals may ignore the command
+    abAppend(&ab, "\x1b[?25l", 6);
     //Writes four bytes into the terminal
     //0x1b is the ESC key, followed by the [ generates an escape sequence
     //In this case it clears the whole screen, but sets the cursor to the bottom
-    write(STDOUT_FILENO, "\x1b[2J", 4);
+    //Later replaced for another command while drawing the rows
+        //abAppend(&ab,"\x1b[2J", 4);
     //The H command repositions the cursor to the top and can take two arguments
     //for row and column like [12;40H, default is 1;1
-    write(STDOUT_FILENO, "\x1b[H", 3);
-    editorDrawRows();
-    write(STDOUT_FILENO, "\x1b[H", 3);
+    abAppend(&ab, "\x1b[H", 3);
+    editorDrawRows(&ab);
+    abAppend(&ab, "\x1b[H", 3);
+    abAppend(&ab, "\x1b[?25h", 6);
+
+    //All of buffer's contents are written out and memory is set free
+    write(STDOUT_FILENO, ab.b, ab.len);
+    abFree(&ab);
 }
 
 /*** input ***/
@@ -137,8 +182,10 @@ int getCursorPosition(int* rows, int* cols)
         i++;
     }
     buf[i] = '\0';
+    //If first element of buffer isn't an esc commando followed by a [ triggers failure
     if(buf[0] != '\x1b' || buf[1] != '[')
         return -1;
+    //If coordinates of window size aren't in the correct format or enough info
     if(sscanf(&buf[2], "%d;%d", rows, cols) != 2)
         return -1;
     return 0;
@@ -163,11 +210,33 @@ int getWindowSize(int* rows, int* cols)
         return 0;
     }
 }
+/*** append buffer ***/
 
+void abAppend(struct abuf* ab, const char* s, int len)
+{
+    //Allocate memory big enough to hold current string length plus new text
+    //Either extends size of current block or sets it free and reallocates to new block
+    char *new = realloc(ab->b, ab->len + len);
+    //No block found, stop operation
+    if(new == NULL)
+        return;
+    //Copies new string to end of text and updates values of abuf 
+    memcpy(&new[ab->len], s, len);
+    ab->b = new;
+    ab->len += len;
+}
+
+//"Destructor" which sets allocated memory free
+void abFree(struct abuf* ab)
+{
+    free(ab->b);
+}
 /*** init ***/
 //Initializes all fields on E-structure
 void initEditor()
 {
+    E.cx = 0;
+    E.cy = 0;
     if(getWindowSize(&E.screenrows, &E.screencols) == -1)
         die("getWindowSize");
 }
