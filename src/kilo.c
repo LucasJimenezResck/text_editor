@@ -95,6 +95,15 @@ void editorProcessKeypress()
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
             break;
+        //Move the cursor up or down until reached the limit of the screen
+        case PAGE_UP:
+        case PAGE_DOWN:
+            {
+                int times = E.screenrows;
+                while(times--)
+                    editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+            }
+            break;
         case ARROW_UP:
         case ARROW_LEFT:
         case ARROW_DOWN:
@@ -185,24 +194,41 @@ int editorReadKey()
         if(read(STDIN_FILENO, &seq[1], 1) != 1)
             return '\x1b';
         
-        //Code the command for the arrow keys
+        //Code the command for the arrow keys, it now can store three bytes
         if(seq[0] == '[')
         {
-            switch(seq[1])
+            if(seq[1] >= '0' && seq[1] <= '9')
             {
-                case 'A':
-                    return ARROW_UP;
-                case 'B':
-                    return ARROW_DOWN;
-                case 'C':
-                    return ARROW_RIGHT;
-                case 'D':
-                    return ARROW_LEFT;
+                if(read(STDIN_FILENO, &seq[2], 1) != 1)
+                    return '\x1b';
+                if(seq[2] == '~')
+                {
+                    switch(seq[1])
+                    {
+                        case '5':
+                            return PAGE_UP;
+                        case '6':
+                            return PAGE_DOWN;
+                    }
+                }
+            }
+            else
+            {
+                switch(seq[1])
+                {
+                    case 'A':
+                        return ARROW_UP;
+                    case 'B':
+                        return ARROW_DOWN;
+                    case 'C':
+                        return ARROW_RIGHT;
+                    case 'D':
+                        return ARROW_LEFT;
+                }
             }
         }
         //If unknown, just return esc
         return '\x1b';
-
     }
     else 
     {

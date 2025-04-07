@@ -25,7 +25,7 @@ struct abuf
 };
 
 //Use of enum to describe the arrow keys makes some changes in the key reading, changing to int
-enum editorKey {ARROW_LEFT = 1000, ARROW_RIGHT, ARROW_UP, ARROW_DOWN};
+enum editorKey {ARROW_LEFT = 1000, ARROW_RIGHT, ARROW_UP, ARROW_DOWN, PAGE_UP, PAGE_DOWN};
 
 void disableRawMode();
 void enableRawMode();
