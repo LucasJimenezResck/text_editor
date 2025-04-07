@@ -15,6 +15,7 @@ int main(void)
     {
         editorRefreshScreen();
         editorProcessKeypress();
+        editorOpen();
 #if 0 //Original input which returned values into the terminal
         c = '\0';
         if(read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN)

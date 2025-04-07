@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include "../include/kilo.h"
 #include <errno.h>
@@ -94,6 +95,12 @@ void editorProcessKeypress()
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
+            break;
+        case HOME_KEY:
+            E.cx = 0;
+            break;
+        case END_KEY:
+            E.cx = E.screencols - 1;
             break;
         //Move the cursor up or down until reached the limit of the screen
         case PAGE_UP:
@@ -197,6 +204,7 @@ int editorReadKey()
         //Code the command for the arrow keys, it now can store three bytes
         if(seq[0] == '[')
         {
+            //Check if second byte is a digit
             if(seq[1] >= '0' && seq[1] <= '9')
             {
                 if(read(STDIN_FILENO, &seq[2], 1) != 1)
@@ -205,10 +213,20 @@ int editorReadKey()
                 {
                     switch(seq[1])
                     {
+                        case '1':
+                            return HOME_KEY;
+                        case '3':
+                            return DEL_KEY;
+                        case '4':
+                            return END_KEY;
                         case '5':
                             return PAGE_UP;
                         case '6':
                             return PAGE_DOWN;
+                        case '7':
+                            return HOME_KEY;
+                        case '8':
+                            return END_KEY;
                     }
                 }
             }
@@ -224,7 +242,21 @@ int editorReadKey()
                         return ARROW_RIGHT;
                     case 'D':
                         return ARROW_LEFT;
+                    case 'H':
+                        return HOME_KEY;
+                    case 'F':
+                        return END_KEY;
                 }
+            }
+        }
+        else if(seq[0] == 'O')
+        {
+            switch(seq[1])
+            {
+                case 'H':
+                    return HOME_KEY;
+                case 'F':
+                    return END_KEY;
             }
         }
         //If unknown, just return esc
@@ -305,6 +337,19 @@ void editorMoveCursor(int key)
             break;
     }
 }
+/*** file i/o ***/
+void editorOpen()
+{
+    //Stores a line and allocates memory for the message
+    char* line = "Hello, Viki!";
+    ssize_t linelen = 12;
+
+    E.row.size = linelen;
+    //Allocate one more space than the length to include the end of string
+    E.row.chars = malloc(linelen + 1);
+    E.row.chars[linelen] = '\0';
+    E.numrows = 1;
+}
 
 /*** append buffer ***/
 
@@ -333,7 +378,7 @@ void initEditor()
 {
     E.cx = 0;
     E.cy = 0;
+    E.numrows = 0;
     if(getWindowSize(&E.screenrows, &E.screencols) == -1)
         die("getWindowSize");
 }
-
