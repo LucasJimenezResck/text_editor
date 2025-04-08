@@ -4,18 +4,20 @@
 #include <stdio.h>
 #include <errno.h>
 
-int main(void)
+int main(int argc, char* argv[])
 {
     enableRawMode();
     initEditor();
-    char c;
+    //If we pass to the executable a .txt-file as input, the text is stored on
+    //the first line of the terminal
+    if(argc >= 2)
+        editorOpen(argv[1]);
     //Reads text from the terminal until user inputs 'q', any text after q
     //is not read. (read(STDIN_FILENO, &c, 1) == 1 & c != 'q')
     while(1)
     {
         editorRefreshScreen();
         editorProcessKeypress();
-        editorOpen();
 #if 0 //Original input which returned values into the terminal
         c = '\0';
         if(read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN)

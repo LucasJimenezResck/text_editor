@@ -1,5 +1,19 @@
 #pragma once
+//Macros to make the code more portable, for me they weren't necessary
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
+
+#include <stdio.h>
+#include <ctype.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
 #include <termios.h>
+
 //Used to map Ctrl. combinations to specific terminal operations
 //The bitwise operation sets the upper three bits to 0, which mirrors what the
 //Ctrl. key does in the terminal
@@ -55,4 +69,4 @@ void initEditor();
 void abAppend(struct abuf* ab, const char* s, int len);
 void abFree(struct abuf* ab);
 void editorMoveCursor(int key);
-void editorOpen();
+void editorOpen(char* filename);

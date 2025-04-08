@@ -1,12 +1,4 @@
-#include <stdio.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <sys/ioctl.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include "../include/kilo.h"
-#include <errno.h>
-#include <string.h>
 
 struct editorConfig E;
 
@@ -16,34 +8,44 @@ void editorDrawRows(struct abuf* ab)
     int y;
     for(y=0; y<E.screenrows;y++)
     {
-        //At about a third of the screen print out a welcome message
-        if(y==E.screenrows / 3)
+        if(y >= E.numrows) //Are we drawing a part of the buffer or is it after it?
         {
-            char welcome[80];
-            int welcomelen = snprintf(welcome, sizeof(welcome), 
-            "Kilo editor -- version %s", KILO_VERSION);
-            if(welcomelen > E.screencols)
-                welcomelen = E.screencols;
-            //Centers the screen to exactly the start of the message
-            int padding = (E.screencols - welcomelen) / 2;
-            //Starting character is a ~
-            if(padding)
+            //At about a third of the screen print out a welcome message
+            if(y==E.screenrows / 3 && E.numrows == 0)
+            {
+                char welcome[80];
+                int welcomelen = snprintf(welcome, sizeof(welcome), 
+                "Kilo editor -- version %s", KILO_VERSION);
+                if(welcomelen > E.screencols)
+                    welcomelen = E.screencols;
+                //Centers the screen to exactly the start of the message
+                int padding = (E.screencols - welcomelen) / 2;
+                //Starting character is a ~
+                if(padding)
+                {
+                    abAppend(ab, "~", 1);
+                    padding--;
+                }
+                //Rest is just blank
+                while(padding--)
+                    abAppend(ab, " ", 1);
+                abAppend(ab, welcome, welcomelen); 
+            }
+            //Draws a column of tildes on the left of the screen
+            //Handles each row of text being edited
+            //Static input: write(STDOUT_FILENO, "~", 1);
+            //All instances of abAppend in code were first like the write command
+            else
             {
                 abAppend(ab, "~", 1);
-                padding--;
             }
-            //Rest is just blank
-            while(padding--)
-                abAppend(ab, " ", 1);
-            abAppend(ab, welcome, welcomelen); 
         }
-        //Draws a column of tildes on the left of the screen
-        //Handles each row of text being edited
-        //Static input: write(STDOUT_FILENO, "~", 1);
-        //All instances of abAppend in code were first like the write command
         else
         {
-            abAppend(ab, "~", 1);
+            int len = E.row.size;
+            if(len > E.screencols)
+                len = E.screencols;
+            abAppend(ab, E.row.chars, len);
         }
         abAppend(ab,"\x1b[K", 3);
         //Makes sure last line is an exception to drawing a new line so that all lines have ~
@@ -338,17 +340,34 @@ void editorMoveCursor(int key)
     }
 }
 /*** file i/o ***/
-void editorOpen()
+void editorOpen(char* filename)
 {
-    //Stores a line and allocates memory for the message
-    char* line = "Hello, Viki!";
-    ssize_t linelen = 12;
 
-    E.row.size = linelen;
-    //Allocate one more space than the length to include the end of string
-    E.row.chars = malloc(linelen + 1);
-    E.row.chars[linelen] = '\0';
-    E.numrows = 1;
+    FILE *fp = fopen(filename, "r");
+    if(!fp)
+        die("fopen");
+
+    //Stores a line and allocates memory for the message
+    char* line = NULL;
+    ssize_t linelen;
+    ssize_t linecap = 0;
+
+    linelen = getline(&line, &linecap, fp); //allocate memory for new line
+
+    if(linelen != -1) //Until there are no more lines to read
+    {
+        while(linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r'))
+            linelen--;
+        
+        E.row.size = linelen;
+        //Allocate one more space than the length to include the end of string
+        E.row.chars = malloc(linelen + 1);
+        memcpy(E.row.chars, line, linelen); //copy the message with the defined length to erow
+        E.row.chars[linelen] = '\0';
+        E.numrows = 1;
+    }
+    free(line); //Allocated line is set free
+    fclose(fp);
 }
 
 /*** append buffer ***/
