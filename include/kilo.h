@@ -36,11 +36,12 @@ typedef struct erow
 struct editorConfig
 {
     int cx,cy; //Cursor coordinates
+    int rowoff; //Row offset for scrolling
     int screenrows; //Screen dimensions, rows and columns
     int screencols;
     struct termios orig_termios; //Takes care of enabling and disabling certain terminal modes
     int numrows; //Number of the row to be written
-    erow row; //Takes care of the editor row
+    erow *row; //Takes care of the editor row, pointer to dynamically allocate many rows
 };
 
 //Dynamic string type to suppport appending operations
@@ -70,3 +71,5 @@ void abAppend(struct abuf* ab, const char* s, int len);
 void abFree(struct abuf* ab);
 void editorMoveCursor(int key);
 void editorOpen(char* filename);
+void editorAppendRow(char* s, size_t len);
+void editorScroll();

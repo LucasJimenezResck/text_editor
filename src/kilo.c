@@ -3,15 +3,27 @@
 struct editorConfig E;
 
 /*** output ***/
+//Checks if cursor has moved outside visible window, and adjust the window in that case
+void editorScroll()
+{
+    //If cursor above the read window, scroll up to where the cursor is
+    if(E.cy < E.rowoff)
+        E.rowoff = E.cy;
+    //To address what is below we use the screenrows attribute
+    if(E.cy >= E.rowoff + E.screenrows)
+        E.rowoff = E.cy - E.screenrows + 1;
+}
+
 void editorDrawRows(struct abuf* ab)
 {
     int y;
     for(y=0; y<E.screenrows;y++)
     {
-        if(y >= E.numrows) //Are we drawing a part of the buffer or is it after it?
+        int filerow = y + E.rowoff; //We use the row value plus the scroll-offset
+        if(filerow >= E.numrows) //Are we drawing a part of the buffer or is it after it?
         {
             //At about a third of the screen print out a welcome message
-            if(y==E.screenrows / 3 && E.numrows == 0)
+            if(y==E.screenrows / 3 && E.numrows == 0) //If buffer is empty, display welcome
             {
                 char welcome[80];
                 int welcomelen = snprintf(welcome, sizeof(welcome), 
@@ -42,10 +54,10 @@ void editorDrawRows(struct abuf* ab)
         }
         else
         {
-            int len = E.row.size;
+            int len = E.row[filerow].size;
             if(len > E.screencols)
                 len = E.screencols;
-            abAppend(ab, E.row.chars, len);
+            abAppend(ab, E.row[filerow].chars, len);
         }
         abAppend(ab,"\x1b[K", 3);
         //Makes sure last line is an exception to drawing a new line so that all lines have ~
@@ -58,6 +70,7 @@ void editorDrawRows(struct abuf* ab)
 
 void editorRefreshScreen()
 {
+    editorScroll();
     struct abuf ab = ABUF_INIT;
 
     
@@ -74,9 +87,9 @@ void editorRefreshScreen()
     abAppend(&ab, "\x1b[H", 3);
     editorDrawRows(&ab);
 
-    //H command with arguments to specify exactly where to move the cursor
+    //H command with arguments to specify exactly where to move the cursor, adjusted for offset
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cy + 1, E.cx + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, E.cx + 1);
     abAppend(&ab, buf, strlen(buf));
 
     abAppend(&ab, "\x1b[?25h", 6);
@@ -327,8 +340,9 @@ void editorMoveCursor(int key)
             if(E.cx != 0)
                 E.cx--;
             break;
+        //Can advance past the bottom of the screen, but not the bottom of the file
         case ARROW_DOWN:
-            if(E.cy != E.screenrows - 1)
+            if(E.cy < E.numrows)
                 E.cy++;
             break;
         case ARROW_RIGHT:
@@ -339,6 +353,23 @@ void editorMoveCursor(int key)
             break;
     }
 }
+/*** row operations ***/
+
+void editorAppendRow(char* s, size_t len)
+{
+    //Allocate the number of bytes each erow takes times the rows we want to print
+    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+    int at = E.numrows;
+    E.row[at].size = len;
+    
+    //Allocate one more space than the length to include the end of string
+    E.row[at].chars = malloc(len + 1);
+    memcpy(E.row[at].chars, s, len); //copy the message with the defined length to erow
+    E.row[at].chars[len] = '\0';
+    E.numrows++;
+}
+
+
 /*** file i/o ***/
 void editorOpen(char* filename)
 {
@@ -352,19 +383,12 @@ void editorOpen(char* filename)
     ssize_t linelen;
     ssize_t linecap = 0;
 
-    linelen = getline(&line, &linecap, fp); //allocate memory for new line
-
-    if(linelen != -1) //Until there are no more lines to read
+    //allocate memory for new line in linelen until there are no more lines to read
+    while((linelen = getline(&line, &linecap, fp)) != -1)
     {
         while(linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r'))
             linelen--;
-        
-        E.row.size = linelen;
-        //Allocate one more space than the length to include the end of string
-        E.row.chars = malloc(linelen + 1);
-        memcpy(E.row.chars, line, linelen); //copy the message with the defined length to erow
-        E.row.chars[linelen] = '\0';
-        E.numrows = 1;
+        editorAppendRow(line, linelen);
     }
     free(line); //Allocated line is set free
     fclose(fp);
@@ -398,6 +422,8 @@ void initEditor()
     E.cx = 0;
     E.cy = 0;
     E.numrows = 0;
+    E.rowoff = 0; //Default value is top of the screen
+    E.row = NULL;
     if(getWindowSize(&E.screenrows, &E.screencols) == -1)
         die("getWindowSize");
 }
