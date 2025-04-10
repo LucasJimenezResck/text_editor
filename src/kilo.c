@@ -12,6 +12,11 @@ void editorScroll()
     //To address what is below we use the screenrows attribute
     if(E.cy >= E.rowoff + E.screenrows)
         E.rowoff = E.cy - E.screenrows + 1;
+    //Analogue to the vertical conditions 
+    if(E.cx < E.coloff)
+        E.coloff = E.cx;
+    if(E.cx >= E.coloff + E.screencols)
+        E.coloff = E.cx - E.screencols + 1;
 }
 
 void editorDrawRows(struct abuf* ab)
@@ -54,10 +59,12 @@ void editorDrawRows(struct abuf* ab)
         }
         else
         {
-            int len = E.row[filerow].size;
+            int len = E.row[filerow].size - E.coloff;
+            if(len < 0) //Avoid user from scrolling past the end of the line
+                len = 0;
             if(len > E.screencols)
                 len = E.screencols;
-            abAppend(ab, E.row[filerow].chars, len);
+            abAppend(ab, &E.row[filerow].chars[E.coloff], len);
         }
         abAppend(ab,"\x1b[K", 3);
         //Makes sure last line is an exception to drawing a new line so that all lines have ~
@@ -89,7 +96,7 @@ void editorRefreshScreen()
 
     //H command with arguments to specify exactly where to move the cursor, adjusted for offset
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, E.cx + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.cx - E.coloff) + 1);
     abAppend(&ab, buf, strlen(buf));
 
     abAppend(&ab, "\x1b[?25h", 6);
@@ -330,6 +337,8 @@ int getWindowSize(int* rows, int* cols)
 
 void editorMoveCursor(int key)
 {
+    //Check if the cursor is on an actual line
+    erow* row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
     switch(key)
     {
         case ARROW_UP:
@@ -339,6 +348,12 @@ void editorMoveCursor(int key)
         case ARROW_LEFT:
             if(E.cx != 0)
                 E.cx--;
+        //If when typing left there is a line above, we move to the end of the previous one
+            else if(E.cy > 0)
+            {
+                E.cy--;
+                E.cx = E.row[E.cy].size;
+            }
             break;
         //Can advance past the bottom of the screen, but not the bottom of the file
         case ARROW_DOWN:
@@ -346,12 +361,24 @@ void editorMoveCursor(int key)
                 E.cy++;
             break;
         case ARROW_RIGHT:
-            if(E.cx != E.screencols - 1)
+        //If E.cx is to the left of the end, then it can move right
+            if(row && E.cx < row->size)
                 E.cx++;
+        //If we are not at the end of the file, moving further right brings to the start below
+            else if(row && E.cx == row->size)
+            {
+                E.cy++;
+                E.cx = 0;
+            }
             break;
         default:
             break;
     }
+    //Generates the snapback so that when scrolling the cursor stays at the end of the line
+    row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
+    int rowlen = row ? row->size : 0;
+    if(E.cx > rowlen)
+        E.cx = rowlen;
 }
 /*** row operations ***/
 
@@ -423,6 +450,7 @@ void initEditor()
     E.cy = 0;
     E.numrows = 0;
     E.rowoff = 0; //Default value is top of the screen
+    E.coloff = 0; //Default value is left of the screen
     E.row = NULL;
     if(getWindowSize(&E.screenrows, &E.screencols) == -1)
         die("getWindowSize");

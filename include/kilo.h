@@ -37,6 +37,7 @@ struct editorConfig
 {
     int cx,cy; //Cursor coordinates
     int rowoff; //Row offset for scrolling
+    int coloff; //Column offset
     int screenrows; //Screen dimensions, rows and columns
     int screencols;
     struct termios orig_termios; //Takes care of enabling and disabling certain terminal modes
