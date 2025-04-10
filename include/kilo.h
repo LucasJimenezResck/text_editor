@@ -21,13 +21,16 @@
 //"Constructor" for empty buffer with length 0 and null pointer
 #define ABUF_INIT {NULL, 0}
 #define KILO_VERSION "0.0.1"
+#define KILO_TAB_STOP 8
 
 //Struct to store row of text in the editor
 //Editor row includes the dynamically allocated data and its length
 typedef struct erow
 {
     int size;
+    int rsize;
     char* chars;
+    char* render;
 } erow;
 
 
@@ -36,6 +39,7 @@ typedef struct erow
 struct editorConfig
 {
     int cx,cy; //Cursor coordinates
+    int rx; //index into the render field
     int rowoff; //Row offset for scrolling
     int coloff; //Column offset
     int screenrows; //Screen dimensions, rows and columns
@@ -73,4 +77,6 @@ void abFree(struct abuf* ab);
 void editorMoveCursor(int key);
 void editorOpen(char* filename);
 void editorAppendRow(char* s, size_t len);
+void editorUpdateRow(erow* row);
 void editorScroll();
+void editorRowCxToRx(erow* row, int cx);

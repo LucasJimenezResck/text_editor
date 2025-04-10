@@ -6,6 +6,7 @@ struct editorConfig E;
 //Checks if cursor has moved outside visible window, and adjust the window in that case
 void editorScroll()
 {
+    E.rx = E.cx;
     //If cursor above the read window, scroll up to where the cursor is
     if(E.cy < E.rowoff)
         E.rowoff = E.cy;
@@ -13,10 +14,10 @@ void editorScroll()
     if(E.cy >= E.rowoff + E.screenrows)
         E.rowoff = E.cy - E.screenrows + 1;
     //Analogue to the vertical conditions 
-    if(E.cx < E.coloff)
-        E.coloff = E.cx;
-    if(E.cx >= E.coloff + E.screencols)
-        E.coloff = E.cx - E.screencols + 1;
+    if(E.rx < E.coloff)
+        E.coloff = E.rx;
+    if(E.rx >= E.coloff + E.screencols)
+        E.coloff = E.rx - E.screencols + 1;
 }
 
 void editorDrawRows(struct abuf* ab)
@@ -59,12 +60,12 @@ void editorDrawRows(struct abuf* ab)
         }
         else
         {
-            int len = E.row[filerow].size - E.coloff;
+            int len = E.row[filerow].rsize - E.coloff;
             if(len < 0) //Avoid user from scrolling past the end of the line
                 len = 0;
             if(len > E.screencols)
                 len = E.screencols;
-            abAppend(ab, &E.row[filerow].chars[E.coloff], len);
+            abAppend(ab, &E.row[filerow].render[E.coloff], len); //displays chars in render
         }
         abAppend(ab,"\x1b[K", 3);
         //Makes sure last line is an exception to drawing a new line so that all lines have ~
@@ -96,7 +97,7 @@ void editorRefreshScreen()
 
     //H command with arguments to specify exactly where to move the cursor, adjusted for offset
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.cx - E.coloff) + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.rx - E.coloff) + 1);
     abAppend(&ab, buf, strlen(buf));
 
     abAppend(&ab, "\x1b[?25h", 6);
@@ -381,6 +382,41 @@ void editorMoveCursor(int key)
         E.cx = rowlen;
 }
 /*** row operations ***/
+//Uses the chars of erow to fill the contents of render
+
+void editorRowCxToRx(erow* row, int cx){}
+
+void editorUpdateRow(erow* row)
+{
+    int tabs = 0;
+    int j;
+    for(j = 0; j < row->size; j++)
+    {
+        if(row->chars[j] == '\t') //Iterate through the text to know the amount of tabs
+            tabs++;
+    }
+    free(row->render);
+    //allocate 8 spaces for a tab, one is already stored in size
+    row->render = malloc(row->size + tabs * (KILO_TAB_STOP - 1) + 1); 
+
+    int idx = 0;
+    for(j = 0; j < row->size; j++)
+    {
+        //When encountered with a tab, create 8 blank spaces, tab length is now constant
+        if(row->chars[j] == '\t')
+        {
+            row->render[idx++] = ' ';
+            while(idx % KILO_TAB_STOP != 0)
+                row->render[idx++] = ' ';
+        }
+        else
+        {
+            row->render[idx++] = row->chars[j];
+        }
+    }
+    row->render[idx] = '\0'; //contains values of chars
+    row->rsize = idx; //contains number of characters assigned to render
+}
 
 void editorAppendRow(char* s, size_t len)
 {
@@ -393,6 +429,9 @@ void editorAppendRow(char* s, size_t len)
     E.row[at].chars = malloc(len + 1);
     memcpy(E.row[at].chars, s, len); //copy the message with the defined length to erow
     E.row[at].chars[len] = '\0';
+    E.row[at].rsize = 0;
+    E.row[at].render = NULL;
+    editorUpdateRow(&E.row[at]);
     E.numrows++;
 }
 
@@ -447,6 +486,7 @@ void abFree(struct abuf* ab)
 void initEditor()
 {
     E.cx = 0;
+    E.rx = 0;
     E.cy = 0;
     E.numrows = 0;
     E.rowoff = 0; //Default value is top of the screen
