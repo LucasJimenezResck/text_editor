@@ -5,11 +5,13 @@
 #define _GNU_SOURCE
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <time.h>
 #include <errno.h>
 #include <string.h>
 #include <termios.h>
@@ -47,6 +49,9 @@ struct editorConfig
     struct termios orig_termios; //Takes care of enabling and disabling certain terminal modes
     int numrows; //Number of the row to be written
     erow *row; //Takes care of the editor row, pointer to dynamically allocate many rows
+    char* filename; //Save a copy of the filename displayed
+    char statusmsg[80];
+    time_t statusmsg_time;
 };
 
 //Dynamic string type to suppport appending operations
@@ -79,4 +84,7 @@ void editorOpen(char* filename);
 void editorAppendRow(char* s, size_t len);
 void editorUpdateRow(erow* row);
 void editorScroll();
-void editorRowCxToRx(erow* row, int cx);
+int editorRowCxToRx(erow* row, int cx);
+void editorDrawStatusBar(struct abuf *ab);
+void editorSetStatusMessage(const char* fmt, ...);
+void editorDrawMessageBar(struct abuf* ab);

@@ -14,6 +14,7 @@ int main(int argc, char* argv[])
         editorOpen(argv[1]);
     //Reads text from the terminal until user inputs 'q', any text after q
     //is not read. (read(STDIN_FILENO, &c, 1) == 1 & c != 'q')
+    editorSetStatusMessage("HELP: Ctrl-Q = quit"); //Explain how to exit editor
     while(1)
     {
         editorRefreshScreen();
