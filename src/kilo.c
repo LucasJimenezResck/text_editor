@@ -168,10 +168,16 @@ void editorProcessKeypress()
     int c = editorReadKey();
     switch(c)
     {
+        case '\r':
+            break;
         case CTRL_KEY('q'):
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
+            break;
+        //Save commited changes in the file
+        case CTRL_KEY('s'):
+            editorSave();
             break;
         case HOME_KEY:
             E.cx = 0;
@@ -180,6 +186,11 @@ void editorProcessKeypress()
         case END_KEY:
             if(E.cy < E.numrows)
                 E.cx = E.row[E.cy].size;
+            break;
+
+        case BACKSPACE:
+        case CTRL_KEY('h'):
+        case DEL_KEY:
             break;
         //Move the cursor up or down until reached the limit of the screen
         case PAGE_UP:
@@ -202,6 +213,14 @@ void editorProcessKeypress()
         case ARROW_DOWN:
         case ARROW_RIGHT:
             editorMoveCursor(c);
+            break;
+        //Ctrl L to refresh and esc key don't do anything
+        case CTRL_KEY('l'):
+        case '\x1b':
+            break;
+        //Turns text viewer into an editor
+        default:
+            editorInsertChar(c);
             break;
     }
 }
@@ -511,8 +530,58 @@ void editorAppendRow(char* s, size_t len)
     E.numrows++;
 }
 
+void editorRowInsertChar(erow* row, int at, int c)
+{
+    //Validate the index to put the character into
+    if(at < 0 || at > row->size)
+        at = row->size;
+    //Reallocate one more space to do over the line and for the 0
+    row->chars = realloc(row->chars, row->size + 2);
+    //Assign the character to the position in array and update row
+    memmove(&row->chars[at + 1], &row->chars[at], row->size -at + 1);
+    row->size++;
+    row->chars[at] = c;
+    editorUpdateRow(row);
+}
+/*** editor operations ***/
+void editorInsertChar(int c)
+{
+    //If cursor is after the end of the file, append a row
+    if(E.cy == E.numrows)
+        editorAppendRow("", 0);
+    //Insert a character and move the cursor forward
+    //Without worrying about the details of the cursor
+    editorRowInsertChar(&E.row[E.cy], E.cx, c);
+    E.cx++;
+}
 
 /*** file i/o ***/
+
+char* editorRowsToString(int* buflen)
+{
+    int totlen = 0;
+    int j;
+    for(j = 0; j < E.numrows; j++)
+    //Add the length of each row into the variable plus the new line char
+        totlen += E.row[j].size + 1;
+    *buflen = totlen;
+    
+    //Allocate the required memory, loop through the rows and copy the contents to the buffer
+    //Adding a new line at the end
+    char* buf = malloc(totlen);
+    char* p = buf;
+
+    for(j = 0; j < E.numrows; j++)
+    {
+        memcpy(p, E.row[j].chars, E.row[j].size);
+        p += E.row[j].size;
+        *p = '\n';
+        p++;
+    }
+
+    return buf;
+}
+
 void editorOpen(char* filename)
 {
     //Makes a copy of the string
@@ -537,6 +606,26 @@ void editorOpen(char* filename)
     }
     free(line); //Allocated line is set free
     fclose(fp);
+}
+
+void editorSave()
+{
+    //If it's a new file, don't do anything for now
+    if(E.filename == NULL)
+        return;
+    int len;
+    char* buf = editorRowsToString(&len);
+
+    //Open a file for read and write, and create it if it doesn't exist
+    //Grant the necessary permissions for text files
+    int fd = open(E.filename, O_RDWR | O_CREAT, 0644);
+    //Set the file to be the exact size of the specified length
+    //ftruncate is also called between the read and write to save most of the data in
+    //the case of a failure
+    ftruncate(fd, len);
+    write(fd, buf, len);
+    close(fd);
+    free(buf);
 }
 
 /*** append buffer ***/

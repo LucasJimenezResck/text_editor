@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -64,7 +65,7 @@ struct abuf
 //Use of enum to describe the arrow keys makes some changes in the key reading, changing to int
 //Page up and page down to move to the  vertical extremes of the screen
 //For now, home and end key move to the left and right extremes
-enum editorKey {ARROW_LEFT = 1000, ARROW_RIGHT, ARROW_UP, ARROW_DOWN, DEL_KEY, HOME_KEY, END_KEY,
+enum editorKey {BACKSPACE = 127, ARROW_LEFT = 1000, ARROW_RIGHT, ARROW_UP, ARROW_DOWN, DEL_KEY, HOME_KEY, END_KEY,
 PAGE_UP, PAGE_DOWN};
 
 void disableRawMode();
@@ -88,3 +89,7 @@ int editorRowCxToRx(erow* row, int cx);
 void editorDrawStatusBar(struct abuf *ab);
 void editorSetStatusMessage(const char* fmt, ...);
 void editorDrawMessageBar(struct abuf* ab);
+void editorRowInsertChar(erow* row, int at, int c);
+void editorInsertChar(int c);
+char* editorRowsToString(int* buflen);
+void editorSave();
