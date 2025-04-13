@@ -25,6 +25,8 @@
 #define ABUF_INIT {NULL, 0}
 #define KILO_VERSION "0.0.1"
 #define KILO_TAB_STOP 8
+//Used to confirm exit even after not saving
+#define KILO_QUIT_TIMES 3
 
 //Struct to store row of text in the editor
 //Editor row includes the dynamically allocated data and its length
@@ -50,6 +52,7 @@ struct editorConfig
     struct termios orig_termios; //Takes care of enabling and disabling certain terminal modes
     int numrows; //Number of the row to be written
     erow *row; //Takes care of the editor row, pointer to dynamically allocate many rows
+    int dirty; //Dirty flag notifies if a file was modified since its saving or opening
     char* filename; //Save a copy of the filename displayed
     char statusmsg[80];
     time_t statusmsg_time;
@@ -93,3 +96,5 @@ void editorRowInsertChar(erow* row, int at, int c);
 void editorInsertChar(int c);
 char* editorRowsToString(int* buflen);
 void editorSave();
+void editorRowDelChar(erow* row, int at);
+void editorDelChar();

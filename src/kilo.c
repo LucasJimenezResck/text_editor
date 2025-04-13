@@ -82,8 +82,10 @@ void editorDrawStatusBar(struct abuf *ab)
     abAppend(ab, "\x1b[7m", 4);
     char status[80], rstatus[80];
     //Prints out a bar showing the number of lines and text name at the bottom of the screen
-    int len = snprintf(status, sizeof(status), "%.20s - %d lines", 
-    E.filename ? E.filename : "[No Name]", E.numrows);
+    //Also if the file was changed after opened or saving
+    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
+    E.filename ? E.filename : "[No Name]", E.numrows,
+    E.dirty ? "(modified)" : "");
     //Displays the number of the current line and the total lines on the right of the bar
     int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", 
     E.cy + 1, E.numrows);
@@ -165,12 +167,20 @@ void editorSetStatusMessage(const char* fmt, ...)
 //Process input coming from read key, for now doesn't do anything, just exits with Ctrl Q
 void editorProcessKeypress()
 {
+    static int quit_times = KILO_QUIT_TIMES;
     int c = editorReadKey();
     switch(c)
     {
         case '\r':
             break;
         case CTRL_KEY('q'):
+            if(E.dirty && quit_times > 0)
+            {
+                editorSetStatusMessage("WARNING: file has unsaved changes. "
+                "Press Ctrl-Q %d more times to exit", quit_times);
+                quit_times--;
+                return; //goes back to the switch case
+            }
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
@@ -223,6 +233,8 @@ void editorProcessKeypress()
             editorInsertChar(c);
             break;
     }
+    //If user doesn't press quit three times in a row, counter is reset
+    quit_times = KILO_QUIT_TIMES;
 }
 
 /*** terminal ***/
@@ -528,6 +540,7 @@ void editorAppendRow(char* s, size_t len)
     E.row[at].render = NULL;
     editorUpdateRow(&E.row[at]);
     E.numrows++;
+    E.dirty++; //Flag is set for every operation that alters text (could have been set to 1)
 }
 
 void editorRowInsertChar(erow* row, int at, int c)
@@ -538,11 +551,26 @@ void editorRowInsertChar(erow* row, int at, int c)
     //Reallocate one more space to do over the line and for the 0
     row->chars = realloc(row->chars, row->size + 2);
     //Assign the character to the position in array and update row
-    memmove(&row->chars[at + 1], &row->chars[at], row->size -at + 1);
+    memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1);
     row->size++;
     row->chars[at] = c;
     editorUpdateRow(row);
+    E.dirty++; //Flag is set for every operation that alters text
 }
+
+void editorRowDelChar(erow* row, int at)
+{
+    if(at < 0 || at >= row->size)
+        return;
+    //Memory move opposite to row insert char
+    //Overwrite deleted character with the one that comes after it
+    memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
+    //Row size decremented and change notified
+    row->size--;
+    editorUpdateRow(row);
+    E.dirty++;
+}
+
 /*** editor operations ***/
 void editorInsertChar(int c)
 {
@@ -553,6 +581,20 @@ void editorInsertChar(int c)
     //Without worrying about the details of the cursor
     editorRowInsertChar(&E.row[E.cy], E.cx, c);
     E.cx++;
+}
+
+void editorDelChar()
+{
+    //Nothing to delete if the cursor is past the end of the file
+    if(E.cy == E.numrows)
+        return;
+    //Get the cursor positions and if there is a character left to the cursor, delete it
+    erow* row = &E.row[E.cy];
+    if(E.cx > 0)
+    {
+        editorRowDelChar(row, E.cx - 1);
+        E.cx--;
+    }
 }
 
 /*** file i/o ***/
@@ -606,6 +648,8 @@ void editorOpen(char* filename)
     }
     free(line); //Allocated line is set free
     fclose(fp);
+    //Flag set to 0 because appendRow was called
+    E.dirty = 0;
 }
 
 void editorSave()
@@ -621,11 +665,28 @@ void editorSave()
     int fd = open(E.filename, O_RDWR | O_CREAT, 0644);
     //Set the file to be the exact size of the specified length
     //ftruncate is also called between the read and write to save most of the data in
-    //the case of a failure
-    ftruncate(fd, len);
-    write(fd, buf, len);
-    close(fd);
+    //the case of a failure.
+    //If-blocks are there to free the allocated memory even in failure by open, truncate or write
+    if(fd != -1)
+    {
+        if(ftruncate(fd, len) != -1)
+        {
+            if(write(fd, buf, len) == len)
+            {
+                close(fd);
+                free(buf);
+                //notify the user about the saving, set flag down
+                E.dirty = 0;
+                editorSetStatusMessage("%d bytes written to disk", len);
+                return;
+            }
+        }
+        close(fd);
+    }
+    //Notify in case of failure in save
     free(buf);
+    editorSetStatusMessage("Can't save! I/O error: %s", strerror(errno));
+
 }
 
 /*** append buffer ***/
@@ -659,6 +720,7 @@ void initEditor()
     E.numrows = 0;
     E.rowoff = 0; //Default value is top of the screen
     E.coloff = 0; //Default value is left of the screen
+    E.dirty = 0; //Flag is not set at default
     E.row = NULL;
     E.filename = NULL;
     E.statusmsg[0] = '\0';
