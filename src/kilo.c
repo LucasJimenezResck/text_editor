@@ -172,6 +172,7 @@ void editorProcessKeypress()
     switch(c)
     {
         case '\r':
+            editorInsertNewLine();
             break;
         case CTRL_KEY('q'):
             if(E.dirty && quit_times > 0)
@@ -200,7 +201,11 @@ void editorProcessKeypress()
 
         case BACKSPACE:
         case CTRL_KEY('h'):
+        //For the delete key move the cursor to the other side
         case DEL_KEY:
+            if(c == DEL_KEY)
+                editorMoveCursor(ARROW_RIGHT);
+            editorDelChar();
             break;
         //Move the cursor up or down until reached the limit of the screen
         case PAGE_UP:
@@ -525,11 +530,16 @@ void editorUpdateRow(erow* row)
     row->rsize = idx; //contains number of characters assigned to render
 }
 
-void editorAppendRow(char* s, size_t len)
+void editorInsertRow(int at, char* s, size_t len)
 {
+    //Validate at
+    if(at < 0 || at > E.numrows)
+        return;
     //Allocate the number of bytes each erow takes times the rows we want to print
     E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
-    int at = E.numrows;
+    //Make room for the new row
+    memmove(&E.row[at + 1], &E.row[at], sizeof(erow) * (E.numrows - at));
+    
     E.row[at].size = len;
     
     //Allocate one more space than the length to include the end of string
@@ -541,6 +551,25 @@ void editorAppendRow(char* s, size_t len)
     editorUpdateRow(&E.row[at]);
     E.numrows++;
     E.dirty++; //Flag is set for every operation that alters text (could have been set to 1)
+}
+
+void editorFreeRow(erow* row)
+{
+    free(row->chars);
+    free(row->render);
+}
+
+void editorDelRow(int at)
+{
+    //Validate at
+    if(at < 0 || at >= E.numrows)
+        return;
+    //Free memory used by row
+    editorFreeRow(&E.row[at]);
+    //Overwrite deleted row with the ones that come after it, update flag and total rows
+    memmove(&E.row[at], &E.row[at + 1], sizeof(erow) * (E.numrows - at - 1));
+    E.dirty++;
+    E.numrows--;
 }
 
 void editorRowInsertChar(erow* row, int at, int c)
@@ -556,6 +585,18 @@ void editorRowInsertChar(erow* row, int at, int c)
     row->chars[at] = c;
     editorUpdateRow(row);
     E.dirty++; //Flag is set for every operation that alters text
+}
+void editorRowAppendString(erow* row, char* s, size_t len)
+{
+    //The row's new size is equal to the current size, plus the length of the string and the 0
+    row->chars = realloc(row->chars, row->size + len + 1);
+    //Copy the given string to the end of row->chars
+    memcpy(&row->chars[row->size], s, len);
+    //Update size, add the null, update the row and set the flag
+    row->size += len;
+    row->chars[row->size] = '\0';
+    editorUpdateRow(row);
+    E.dirty++; 
 }
 
 void editorRowDelChar(erow* row, int at)
@@ -576,17 +617,48 @@ void editorInsertChar(int c)
 {
     //If cursor is after the end of the file, append a row
     if(E.cy == E.numrows)
-        editorAppendRow("", 0);
+        editorInsertRow(E.numrows, "", 0);
     //Insert a character and move the cursor forward
     //Without worrying about the details of the cursor
     editorRowInsertChar(&E.row[E.cy], E.cx, c);
     E.cx++;
 }
 
+void editorInsertNewLine()
+{
+    //If at the beginning of a line, just insert a new blank line
+    if(E.cx == 0)
+    {
+        editorInsertRow(E.cy, "", 0);
+    }
+    //Otherwise
+    else
+    {
+        erow* row = &E.row[E.cy];
+        //Split row in two
+        //Pass characters on the right of the cursor to new inserted row
+        //Already updated
+        editorInsertRow(E.cy + 1, &row->chars[E.cx], row->size - E.cx);
+        //Pass again the correct values to row due to reallocation
+        //Size is now the position of the cursor
+        //Add an end of the line and update the truncated row
+        row = &E.row[E.cy];
+        row->size = E.cx;
+        row->chars[row->size] = '\0';
+        editorUpdateRow(row);
+    }
+    //In both cases, update the cursor values
+    E.cy++;
+    E.cx = 0;
+}
+
 void editorDelChar()
 {
     //Nothing to delete if the cursor is past the end of the file
+    //Or if it is at the very beginning
     if(E.cy == E.numrows)
+        return;
+    if(E.cx == 0 && E.cy == 0)
         return;
     //Get the cursor positions and if there is a character left to the cursor, delete it
     erow* row = &E.row[E.cy];
@@ -594,6 +666,15 @@ void editorDelChar()
     {
         editorRowDelChar(row, E.cx - 1);
         E.cx--;
+    }
+    //If cursor is not at the beginning of the file but it is at the beginning of a row
+    else
+    {
+        E.cx = E.row[E.cy - 1].size;
+        //Append row->chars to the previous row and delete the current row
+        editorRowAppendString(&E.row[E.cy - 1], row->chars, row->size);
+        editorDelRow(E.cy);
+        E.cy--;
     }
 }
 
@@ -644,7 +725,7 @@ void editorOpen(char* filename)
     {
         while(linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r'))
             linelen--;
-        editorAppendRow(line, linelen);
+        editorInsertRow(E.numrows, line, linelen);
     }
     free(line); //Allocated line is set free
     fclose(fp);

@@ -1,9 +1,5 @@
 #include "../include/kilo.h"
 
-#include <ctype.h>
-#include <stdio.h>
-#include <errno.h>
-
 int main(int argc, char* argv[])
 {
     enableRawMode();
@@ -21,6 +17,7 @@ int main(int argc, char* argv[])
         editorRefreshScreen();
         editorProcessKeypress();
 #if 0 //Original input which returned values into the terminal
+        char c;
         c = '\0';
         if(read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN)
             die("read");
