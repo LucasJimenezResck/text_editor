@@ -102,3 +102,4 @@ void editorFreeRow(erow* row);
 void editorDelRow(int at);
 void editorRowAppendString(erow* row, char* s, size_t len);
 void editorInsertNewLine();
+char* editorPrompt(char* prompt);
