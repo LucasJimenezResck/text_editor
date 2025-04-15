@@ -8,7 +8,7 @@ void editorScroll()
 {
     E.rx = 0;
     if(E.cy < E.numrows)
-        E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+        E.rx = editorRowRxToCx(&E.row[E.cy], E.cx);
     //If cursor above the read window, scroll up to where the cursor is
     if(E.cy < E.rowoff)
         E.rowoff = E.cy;
@@ -250,6 +250,9 @@ void editorProcessKeypress()
             if(E.cy < E.numrows)
                 E.cx = E.row[E.cy].size;
             break;
+        //Find certain words into the text
+        case CTRL_KEY('f'):
+            editorFind();
 
         case BACKSPACE:
         case CTRL_KEY('h'):
@@ -535,19 +538,22 @@ void editorMoveCursor(int key)
 /*** row operations ***/
 //Uses the chars of erow to fill the contents of render
 
-int editorRowCxToRx(erow* row, int cx)
+int editorRowRxToCx(erow* row, int rx)
 {
-    int rx = 0;
-    int j;
-    for(j = 0; j <cx; j++)
+    int cur_rx = 0;
+    int cx;
+    for(cx = 0; cx < row->size; cx++)
     {
-        if(row->chars[j] == '\t')
+        if(row->chars[cx] == '\t')
         //If it is a tab subtract right distance from las tab to left distance
-            rx += (KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP);
+            cur_rx += (KILO_TAB_STOP - 1) - (cur_rx % KILO_TAB_STOP);
         
-        rx++;
+        cur_rx++;
+        //Stop when found the current rx and return cx
+        if(cur_rx > rx)
+            return cx;
     }
-    return rx;
+    return cur_rx;
 }
 
 void editorUpdateRow(erow* row)
@@ -829,6 +835,31 @@ void editorSave()
     free(buf);
     editorSetStatusMessage("Can't save! I/O error: %s", strerror(errno));
 
+}
+/*** info ***/
+
+void editorFind()
+{
+    char* query = editorPrompt("Search: %s (ESC to cancel)");
+    //If pressed escape, the prompt is cancelled
+    if(query == NULL)
+        return;
+    int i;
+    for(i = 0; i < E.numrows; i++)
+    {
+        erow* row = &E.row[i];
+        //Check if query is a substring of a current row
+        char *match = strstr(row->render, query);
+        if(match)
+        {
+            //Turn the matching pointer into an index
+            E.cy = i;
+            E.cx = editorRowRxToCx(row, match - row->render);
+            E.rowoff = E.numrows;
+            break;
+        }
+    }
+    free(query);
 }
 
 /*** append buffer ***/
