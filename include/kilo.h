@@ -36,6 +36,7 @@ typedef struct erow
     int rsize;
     char* chars;
     char* render;
+    unsigned char* hl; //store the highlighting of each line
 } erow;
 
 
@@ -64,6 +65,9 @@ struct abuf
     char *b;
     int len;
 };
+
+//Possible values the highlight can contain
+enum editorHighlight {HL_NORMAL = 0, HL_NUMBER, HL_MATCH};
 
 //Use of enum to describe the arrow keys makes some changes in the key reading, changing to int
 //Page up and page down to move to the  vertical extremes of the screen
@@ -105,3 +109,5 @@ void editorInsertNewLine();
 char* editorPrompt(char* prompt, void (*callback)(char*, int));
 void editorFind();
 void editorFindCallback(char* query, int key);
+void editorUpdateSyntax(erow* row);
+int editorSyntaxToColor(int hl);

@@ -67,7 +67,44 @@ void editorDrawRows(struct abuf* ab)
                 len = 0;
             if(len > E.screencols)
                 len = E.screencols;
-            abAppend(ab, &E.row[filerow].render[E.coloff], len); //displays chars in render
+            char* c = &E.row[filerow].render[E.coloff];
+            //slice of hl corresponding to the slice being printed
+            unsigned char* hl = &E.row[filerow].hl[E.coloff];
+            int current_color = -1;
+            int j;
+            //Feed the substring of render char by char
+            for(j = 0; j < len; j++)
+            {
+                //If it is not a digit
+                if(hl[j] == HL_NORMAL)
+                {
+                    //Make sure to be using the normal text to print
+                    //Same style was used to show the status bar
+                    if(current_color != -1)
+                    {
+                        abAppend(ab, "\x1b[39m", 5);
+                        current_color = -1;
+                    }
+                    abAppend(ab, &c[j], 1);
+                }
+                else
+                {
+                    int color = editorSyntaxToColor(hl[j]);
+                    //Just print out an escape sequence if the color changes
+                    if(color != current_color)
+                    {
+                        current_color = color;
+                        char buf[16];
+                        //Write an escape sequence for the numbers using the syntax to color
+                        int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                        abAppend(ab, buf, clen);
+                    }
+                        abAppend(ab, &c[j], 1);
+                    
+                }
+            }
+            //At the end, make sure we are at default
+            abAppend(ab, "\x1b[39m", 5);
         }
         abAppend(ab,"\x1b[K", 3);
         //Makes sure last line is an exception to drawing a new line so that all lines have ~
@@ -541,6 +578,38 @@ void editorMoveCursor(int key)
     if(E.cx > rowlen)
         E.cx = rowlen;
 }
+/*** syntax highlight ***/
+//Goes through values of an erow and highlights its numbers
+void editorUpdateSyntax(erow* row)
+{
+    //Allocate the needed space (a row)
+    row->hl = realloc(row->hl, row->rsize);
+    //Initialy set all characters to normal
+    memset(row->hl, HL_NORMAL, row->rsize);
+
+    int i;
+    //Iterate through the characters and set the corresponding values to number
+    for(i = 0; i < row->rsize; i++)
+    {
+        if(isdigit(row->render[i]))
+        {
+            row->hl[i] = HL_NUMBER;
+        }
+    }
+}
+//If it's a number return the red code, otherwise return white
+int editorSyntaxToColor(int hl)
+{
+    switch(hl)
+    {
+        case HL_NUMBER:
+            return 31;
+        case HL_MATCH:
+            return 34;
+        default:
+            return 37;
+    }
+}
 /*** row operations ***/
 //Uses the chars of erow to fill the contents of render
 
@@ -594,6 +663,7 @@ void editorUpdateRow(erow* row)
     }
     row->render[idx] = '\0'; //contains values of chars
     row->rsize = idx; //contains number of characters assigned to render
+    editorUpdateSyntax(row); // Highlight the numbers
 }
 
 void editorInsertRow(int at, char* s, size_t len)
@@ -614,6 +684,7 @@ void editorInsertRow(int at, char* s, size_t len)
     E.row[at].chars[len] = '\0';
     E.row[at].rsize = 0;
     E.row[at].render = NULL;
+    E.row[at].hl = NULL;
     editorUpdateRow(&E.row[at]);
     E.numrows++;
     E.dirty++; //Flag is set for every operation that alters text (could have been set to 1)
@@ -623,6 +694,7 @@ void editorFreeRow(erow* row)
 {
     free(row->chars);
     free(row->render);
+    free(row->hl);
 }
 
 void editorDelRow(int at)
@@ -852,6 +924,20 @@ void editorFindCallback(char* query, int key)
     //forwards or backwards
     static int last_match = -1;
     static int direction = 1;
+    //Make sure results don't stay highlighted after search
+    //Know which lines to restore and copy them to the saved line's highlight pointer
+    static int saved_hl_line;
+    static char* saved_hl = NULL;
+    if(saved_hl)
+    {
+        //Line used as index because the file can't be edited between saving and restoring hl
+        memcpy(E.row[saved_hl_line].hl, saved_hl, E.row[saved_hl_line].rsize);
+        //Free at the top impedes malloc() to be used without an available pointer
+        free(saved_hl);
+        saved_hl = NULL;
+    }
+
+    
     //If pressed escape or enter, the prompt is terminated and we return to the initial
     //condition of the variables
     if(key == '\x1b' || key == '\r'){
@@ -899,6 +985,11 @@ void editorFindCallback(char* query, int key)
             E.cy = current;
             E.cx = editorRowRxToCx(row, match - row->render);
             E.rowoff = E.numrows;
+            //Match the substring to the highlight
+            saved_hl_line = current;
+            saved_hl = malloc(row->rsize);
+            memcpy(saved_hl, row->hl, row->rsize);
+            memset(&row->hl[match - row->render], HL_MATCH, strlen(query));
             break;
         }
     }
