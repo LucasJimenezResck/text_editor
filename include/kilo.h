@@ -28,6 +28,7 @@
 //Used to confirm exit even after not saving
 #define KILO_QUIT_TIMES 3
 
+
 //Struct to store row of text in the editor
 //Editor row includes the dynamically allocated data and its length
 typedef struct erow
@@ -39,7 +40,13 @@ typedef struct erow
     unsigned char* hl; //store the highlighting of each line
 } erow;
 
-
+//Structure to configure highlight based on filetype being displayed
+struct editorSyntax
+{
+    char* filetype; //diplayed filetype
+    char **filematch; //array of strings to match filenames to patterns
+    int flags;
+};
 
 //Struct used to store dimension of the terminal
 struct editorConfig
@@ -57,6 +64,7 @@ struct editorConfig
     char* filename; //Save a copy of the filename displayed
     char statusmsg[80];
     time_t statusmsg_time;
+    struct editorSyntax* syntax;
 };
 
 //Dynamic string type to suppport appending operations
@@ -68,12 +76,15 @@ struct abuf
 
 //Possible values the highlight can contain
 enum editorHighlight {HL_NORMAL = 0, HL_NUMBER, HL_MATCH};
+//Flag bit
+#define HL_HIGHLIGHT_NUMBERS (1<<0)
 
 //Use of enum to describe the arrow keys makes some changes in the key reading, changing to int
 //Page up and page down to move to the  vertical extremes of the screen
 //For now, home and end key move to the left and right extremes
 enum editorKey {BACKSPACE = 127, ARROW_LEFT = 1000, ARROW_RIGHT, ARROW_UP, ARROW_DOWN, DEL_KEY, HOME_KEY, END_KEY,
 PAGE_UP, PAGE_DOWN};
+
 
 void disableRawMode();
 void enableRawMode();
@@ -111,3 +122,5 @@ void editorFind();
 void editorFindCallback(char* query, int key);
 void editorUpdateSyntax(erow* row);
 int editorSyntaxToColor(int hl);
+int is_separator(int c);
+void editorSelectSyntaxHighlight();

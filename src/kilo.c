@@ -1,6 +1,20 @@
 #include "../include/kilo.h"
 
+
 struct editorConfig E;
+
+//Highlight database
+char *C_HL_extensions[] = { ".c", ".h", ".cpp", NULL };
+struct editorSyntax HLDB[] = {
+  {
+    "c",
+    C_HL_extensions,
+    HL_HIGHLIGHT_NUMBERS
+  },
+};
+//Define length of the array
+#define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
+
 
 /*** output ***/
 //Checks if cursor has moved outside visible window, and adjust the window in that case
@@ -123,9 +137,9 @@ void editorDrawStatusBar(struct abuf *ab)
     int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
     E.filename ? E.filename : "[No Name]", E.numrows,
     E.dirty ? "(modified)" : "");
-    //Displays the number of the current line and the total lines on the right of the bar
-    int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", 
-    E.cy + 1, E.numrows);
+    //Displays the number of the current line, filetype and the total lines on the right of the bar
+    int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
+    E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
     if(len > E.screencols)
         len = E.screencols;
     abAppend(ab, status, len);
@@ -579,6 +593,13 @@ void editorMoveCursor(int key)
         E.cx = rowlen;
 }
 /*** syntax highlight ***/
+//Return if the character can be considered as separator
+int is_separator(int c)
+{
+    //strchr returns the first pointer matching a character in the given string
+    //If it doesn't find it, it returns null
+    return isspace(c) || c=='\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
+}
 //Goes through values of an erow and highlights its numbers
 void editorUpdateSyntax(erow* row)
 {
@@ -586,15 +607,36 @@ void editorUpdateSyntax(erow* row)
     row->hl = realloc(row->hl, row->rsize);
     //Initialy set all characters to normal
     memset(row->hl, HL_NORMAL, row->rsize);
-
-    int i;
+    //Take filetype into account for highlighting, no c-file means no highlighting
+    if(E.syntax == NULL)
+        return;
+    //We consider the beginning of the line to be a separator
+    int prev_sep = 1;
+    int i = 0;
     //Iterate through the characters and set the corresponding values to number
-    for(i = 0; i < row->rsize; i++)
+    while(i < row->rsize)
     {
-        if(isdigit(row->render[i]))
+        char c = row->render[i];
+        //Highlight type of the previous number
+        unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
+        if(E.syntax->flags & HL_HIGHLIGHT_NUMBERS)
         {
-            row->hl[i] = HL_NUMBER;
-        }
+            //To highlight a character, now the previous character must be either a separator
+            //Or a number as well
+            //Decimal points are also considered part of the number
+            if(isdigit(c) && (prev_sep || prev_hl == HL_NUMBER) || (c == '.' && prev_hl && HL_NUMBER))
+            {
+                
+                row->hl[i] = HL_NUMBER;
+                i++;
+                //Indicates we are highlighting the number and continue with the loop
+                prev_sep = 0;
+                continue;
+            }
+        }   
+        //If we don't highlight the character, set previous separator as current char and consume it
+        prev_sep = is_separator(c);
+        i++;
     }
 }
 //If it's a number return the red code, otherwise return white
@@ -608,6 +650,34 @@ int editorSyntaxToColor(int hl)
             return 34;
         default:
             return 37;
+    }
+}
+void editorSelectSyntaxHighlight()
+{
+    E.syntax = NULL;
+    //No filename means no highlighting
+    if(E.filename == NULL)
+        return;
+    //Find the last occurrence of the extension part of the filename
+    char* ext = strrchr(E.filename, '.');
+    for(unsigned int j = 0; j < HLDB_ENTRIES; j++)
+    {
+        //Loop through elements in highlight database
+        struct editorSyntax* s = &HLDB[j];
+        unsigned int i = 0;
+        //Loop through each filematch
+        while(s->filematch[i])
+        {
+            //If the pattern starts with . it is an extension
+            int is_ext = (s->filematch[i][0] == '.');
+            if((is_ext && ext && !strcmp(ext, s->filematch[i])) ||
+            (!is_ext && strstr(E.filename, s->filematch[i])))
+            {
+                E.syntax = s;
+                return;
+            }
+            i++;
+        }
     }
 }
 /*** row operations ***/
@@ -848,6 +918,7 @@ void editorOpen(char* filename)
     //Makes a copy of the string
     free(E.filename);
     E.filename = strdup(filename);
+    editorSelectSyntaxHighlight();
 
     FILE *fp = fopen(filename, "r");
     if(!fp)
@@ -882,6 +953,7 @@ void editorSave()
             editorSetStatusMessage("Save aborted!");
             return;
         }
+        editorSelectSyntaxHighlight();
 
     }
         
@@ -1054,6 +1126,7 @@ void initEditor()
     E.filename = NULL;
     E.statusmsg[0] = '\0';
     E.statusmsg_time = 0;
+    E.syntax = NULL;
     if(getWindowSize(&E.screenrows, &E.screencols) == -1)
         die("getWindowSize");
     //Reserve screenrow for status bar and message
