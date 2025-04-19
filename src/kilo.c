@@ -5,15 +5,26 @@ struct editorConfig E;
 
 //Highlight database
 char *C_HL_extensions[] = { ".c", ".h", ".cpp", NULL };
+char *C_HL_Keywords[] = {
+    //Primary keywords
+    "switch", "if", "while", "for", "break", "continue", "return", "else",
+    "struct", "union", "typedef", "static", "enum", "class", "case",
+    //Secondary keywords
+    "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
+    "void|", NULL
+  };
 struct editorSyntax HLDB[] = {
   {
     "c",
-    C_HL_extensions,
-    HL_HIGHLIGHT_NUMBERS
+    .filematch = C_HL_extensions,
+    .keywords = C_HL_Keywords,
+    .singleline_comment_start = "//",
+    .flags = HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
   },
 };
 //Define length of the array
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
+
 
 
 /*** output ***/
@@ -610,8 +621,14 @@ void editorUpdateSyntax(erow* row)
     //Take filetype into account for highlighting, no c-file means no highlighting
     if(E.syntax == NULL)
         return;
+    char **keywords = E.syntax->keywords;
+    //Store the pointer to the char for comment start and the given length, otherwise no length
+    char *scs = E.syntax->singleline_comment_start;
+    int scs_len = scs ? strlen(scs) : 0;
     //We consider the beginning of the line to be a separator
     int prev_sep = 1;
+    //Keep track of whether we are inside a string
+    int in_string = 0;
     int i = 0;
     //Iterate through the characters and set the corresponding values to number
     while(i < row->rsize)
@@ -619,6 +636,52 @@ void editorUpdateSyntax(erow* row)
         char c = row->render[i];
         //Highlight type of the previous number
         unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
+        //Make sure of the length and if we're not in a string
+        if(scs_len && !in_string)
+        {
+            //Check if char is the start of a scs
+            if(!strncmp(&row->render[i], scs, scs_len))
+            {
+                //Set the rest of the line to comment and break out of the loop
+                memset(&row->hl[i], HL_COMMENT, row->rsize - i);
+                break;
+            }
+        }
+        if(E.syntax->flags & HL_HIGHLIGHT_STRINGS)
+        {
+            if(in_string)
+            {
+                //Set the highlighter to string type
+                row->hl[i] = HL_STRING;
+                //Consider also escape quotes
+                if(c=='\\' && i + 1 < row->size)
+                {
+                    //Highlight the char after the backslash and consume both of them
+                    row->hl[i + 1] = HL_STRING;
+                    i += 2;
+                    continue;
+                }
+                //If the char is a closing quote stop the in string
+                if(c == in_string)
+                    in_string = 0;
+                i++;
+                //Closing quote is considered a separator
+                prev_sep = 1;
+                continue;
+            }
+            else
+            {
+                //Store for single and double quote
+                if(c == '"' || c == '\'')
+                {
+                    //Set the value of c to in string in case it is the beginning or end of a strings
+                    in_string = c;
+                    row->hl[i] = HL_STRING;
+                    i++;
+                    continue;
+                }
+            }
+        }
         if(E.syntax->flags & HL_HIGHLIGHT_NUMBERS)
         {
             //To highlight a character, now the previous character must be either a separator
@@ -633,7 +696,39 @@ void editorUpdateSyntax(erow* row)
                 prev_sep = 0;
                 continue;
             }
-        }   
+        }
+        //Make sure there is a separator before the keyword
+        if(prev_sep)
+        {
+            int j;
+            for(j = 0; keywords[j]; j++)
+            {
+                //Find keyword length for both types of kw
+                int klen = strlen(keywords[j]);
+                int kw2 = keywords[j][klen - 1] == '|';
+                //For secondary remove last char
+                if(kw2)
+                    klen--;
+                
+                //Check if the keyword exists and if it is followed by a separator
+                if(!strncmp(&row->render[i], keywords[j], klen) &&
+                is_separator(row->render[i + klen]))
+                {
+                    //Set the highlighter to the corresponding kw type and consume it
+
+                    memset(&row->hl[i], kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
+                    i += klen;
+                    //Break out of the inner loop before continuing
+                    break;
+                }
+            }
+            //Check if the loop was actually broken out of
+            if(keywords[j] != NULL)
+            {
+                prev_sep = 0;
+                continue;
+            }
+        }
         //If we don't highlight the character, set previous separator as current char and consume it
         prev_sep = is_separator(c);
         i++;
@@ -646,8 +741,16 @@ int editorSyntaxToColor(int hl)
     {
         case HL_NUMBER:
             return 31;
+        case HL_KEYWORD1:
+            return 32;
+        case HL_KEYWORD2:
+            return 33;
         case HL_MATCH:
             return 34;
+        case HL_STRING:
+            return 35;
+        case HL_COMMENT:
+            return 36;
         default:
             return 37;
     }
@@ -674,6 +777,13 @@ void editorSelectSyntaxHighlight()
             (!is_ext && strstr(E.filename, s->filematch[i])))
             {
                 E.syntax = s;
+                int filerow;
+                for(filerow = 0; filerow < E.numrows; filerow++)
+                {
+                    //Loop through every file line and update the syntax so that the
+                    //highlighting applies for new files
+                    editorUpdateSyntax(&E.row[filerow]);
+                }
                 return;
             }
             i++;

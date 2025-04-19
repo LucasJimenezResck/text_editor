@@ -45,6 +45,8 @@ struct editorSyntax
 {
     char* filetype; //diplayed filetype
     char **filematch; //array of strings to match filenames to patterns
+    char **keywords; //Highlight certain specific keywords
+    char* singleline_comment_start; //Which type of char consists of a single line comment
     int flags;
 };
 
@@ -75,9 +77,10 @@ struct abuf
 };
 
 //Possible values the highlight can contain
-enum editorHighlight {HL_NORMAL = 0, HL_NUMBER, HL_MATCH};
-//Flag bit
+enum editorHighlight {HL_NORMAL = 0, HL_KEYWORD1, HL_KEYWORD2, HL_COMMENT, HL_STRING, HL_NUMBER, HL_MATCH};
+//Flag bits
 #define HL_HIGHLIGHT_NUMBERS (1<<0)
+#define HL_HIGHLIGHT_STRINGS (1<<1)
 
 //Use of enum to describe the arrow keys makes some changes in the key reading, changing to int
 //Page up and page down to move to the  vertical extremes of the screen
