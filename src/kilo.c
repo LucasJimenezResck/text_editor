@@ -19,6 +19,8 @@ struct editorSyntax HLDB[] = {
     .filematch = C_HL_extensions,
     .keywords = C_HL_Keywords,
     .singleline_comment_start = "//",
+    .multiline_comment_start = "/*",
+    .multiline_comment_end = "*/",
     .flags = HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
   },
 };
@@ -100,8 +102,26 @@ void editorDrawRows(struct abuf* ab)
             //Feed the substring of render char by char
             for(j = 0; j < len; j++)
             {
+                //If character is ctrl. type
+                if(iscntrl(c[j]))
+                {
+                    //Define symbol between @ and Z or non-alphabetical
+                    char sym = (c[j] <= 26) ? '@' + c[j] : '?';
+                    //Invert colors for these values and then put back to normal
+                    abAppend(ab, "\x1b[7m", 4);
+                    abAppend(ab, &sym, 1);
+                    abAppend(ab, "\x1b[m", 3);
+                    //Reverse the turned off formating done by the former block
+                    if(current_color != -1)
+                    {
+                        char buf[16];
+                        int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
+                        abAppend(ab, buf, clen);
+                    }
+                }
+                
                 //If it is not a digit
-                if(hl[j] == HL_NORMAL)
+                else if(hl[j] == HL_NORMAL)
                 {
                     //Make sure to be using the normal text to print
                     //Same style was used to show the status bar
@@ -623,12 +643,19 @@ void editorUpdateSyntax(erow* row)
         return;
     char **keywords = E.syntax->keywords;
     //Store the pointer to the char for comment start and the given length, otherwise no length
+    //Also for multiline comment
     char *scs = E.syntax->singleline_comment_start;
+    char *mcs = E.syntax->multiline_comment_start;
+    char *mce = E.syntax->multiline_comment_end;
     int scs_len = scs ? strlen(scs) : 0;
+    int mcs_len = mcs ? strlen(mcs) : 0;
+    int mce_len = mce ? strlen(mce) : 0;
     //We consider the beginning of the line to be a separator
     int prev_sep = 1;
-    //Keep track of whether we are inside a string
+    //Keep track of whether we are inside a string or a comment
     int in_string = 0;
+    //In comment is true if positive index and former line contains an open ml comment
+    int in_comment = (row->idx > 0 && E.row[row->idx - 1].hl_open_comment);
     int i = 0;
     //Iterate through the characters and set the corresponding values to number
     while(i < row->rsize)
@@ -636,8 +663,8 @@ void editorUpdateSyntax(erow* row)
         char c = row->render[i];
         //Highlight type of the previous number
         unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
-        //Make sure of the length and if we're not in a string
-        if(scs_len && !in_string)
+        //Make sure of the length, if we're not in a string and not inside an ml comment
+        if(scs_len && !in_string && !in_comment)
         {
             //Check if char is the start of a scs
             if(!strncmp(&row->render[i], scs, scs_len))
@@ -645,6 +672,39 @@ void editorUpdateSyntax(erow* row)
                 //Set the rest of the line to comment and break out of the loop
                 memset(&row->hl[i], HL_COMMENT, row->rsize - i);
                 break;
+            }
+        }
+        //If our comments aren't null and we aren't inside of a string
+        if(mcs_len && mce_len && !in_string)
+        {
+            if(in_comment)
+            {
+                row->hl[i] = HL_MLCOMMENT;
+                //If we are at the end of a comment set to highlighted type and get out of comment bool
+                if(!strncmp(&row->render[i], mce, mce_len))
+                {
+                    memset(&row->hl[i], HL_MLCOMMENT, row->rsize - i);
+                    //Consume comment type
+                    i+= mce_len;
+                    in_comment = 0;
+                    prev_sep = 1;
+                    continue;
+                }
+                //Just consume the char if it's not the end
+                else
+                {
+                    i++;
+                    continue;
+                }
+            }
+            //If we aren't at an ml comment check if we are at the beginning of it and set the
+            //boolean
+            else if(!strncmp(&row->render[i], mcs, mcs_len))
+            {
+                memset(&row->hl[i], HL_MLCOMMENT, row->rsize - i);
+                i+= mcs_len;
+                in_comment = 1;
+                continue;
             }
         }
         if(E.syntax->flags & HL_HIGHLIGHT_STRINGS)
@@ -733,6 +793,12 @@ void editorUpdateSyntax(erow* row)
         prev_sep = is_separator(c);
         i++;
     }
+    //Set the open comment state to the last value of in comment
+    int changed = (row->hl_open_comment != in_comment);
+    row->hl_open_comment = in_comment;
+    //Updates syntax for the following lines in case an ml comment was made
+    if(changed && row->idx + 1 < E.numrows)
+        editorUpdateSyntax(&E.row[row->idx + 1]);
 }
 //If it's a number return the red code, otherwise return white
 int editorSyntaxToColor(int hl)
@@ -749,6 +815,7 @@ int editorSyntaxToColor(int hl)
             return 34;
         case HL_STRING:
             return 35;
+        case HL_MLCOMMENT:
         case HL_COMMENT:
             return 36;
         default:
@@ -855,7 +922,11 @@ void editorInsertRow(int at, char* s, size_t len)
     E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
     //Make room for the new row
     memmove(&E.row[at + 1], &E.row[at], sizeof(erow) * (E.numrows - at));
+
+    for(int j = at + 1; j <= E.numrows; j++)
+        E.row[j].idx++;
     
+    E.row[at].idx = at;
     E.row[at].size = len;
     
     //Allocate one more space than the length to include the end of string
@@ -865,6 +936,7 @@ void editorInsertRow(int at, char* s, size_t len)
     E.row[at].rsize = 0;
     E.row[at].render = NULL;
     E.row[at].hl = NULL;
+    E.row[at].hl_open_comment = 0;
     editorUpdateRow(&E.row[at]);
     E.numrows++;
     E.dirty++; //Flag is set for every operation that alters text (could have been set to 1)
@@ -886,6 +958,8 @@ void editorDelRow(int at)
     editorFreeRow(&E.row[at]);
     //Overwrite deleted row with the ones that come after it, update flag and total rows
     memmove(&E.row[at], &E.row[at + 1], sizeof(erow) * (E.numrows - at - 1));
+    for(int j = at + 1; j <= E.numrows; j++)
+        E.row[j].idx--;
     E.dirty++;
     E.numrows--;
 }

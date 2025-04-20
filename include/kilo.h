@@ -33,11 +33,13 @@
 //Editor row includes the dynamically allocated data and its length
 typedef struct erow
 {
+    int idx;
     int size;
     int rsize;
     char* chars;
     char* render;
     unsigned char* hl; //store the highlighting of each line
+    int hl_open_comment;
 } erow;
 
 //Structure to configure highlight based on filetype being displayed
@@ -47,6 +49,8 @@ struct editorSyntax
     char **filematch; //array of strings to match filenames to patterns
     char **keywords; //Highlight certain specific keywords
     char* singleline_comment_start; //Which type of char consists of a single line comment
+    char* multiline_comment_start;
+    char* multiline_comment_end;
     int flags;
 };
 
@@ -77,7 +81,8 @@ struct abuf
 };
 
 //Possible values the highlight can contain
-enum editorHighlight {HL_NORMAL = 0, HL_KEYWORD1, HL_KEYWORD2, HL_COMMENT, HL_STRING, HL_NUMBER, HL_MATCH};
+enum editorHighlight {HL_NORMAL = 0, HL_KEYWORD1, HL_KEYWORD2, HL_COMMENT, HL_MLCOMMENT, HL_STRING,
+HL_NUMBER, HL_MATCH};
 //Flag bits
 #define HL_HIGHLIGHT_NUMBERS (1<<0)
 #define HL_HIGHLIGHT_STRINGS (1<<1)
